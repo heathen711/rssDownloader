@@ -1,0 +1,35 @@
+http://extratorrent.cc/rss.xml?type=search&search=%%QUERY%%+s%%SEASON%%e%%EPISODE%%+x264+ettv
+Scorpion
+Supergirl
+Haven
+The Flash (2014)
+Elementary
+Blacklist
+NCIS
+NCIS: Los Angeles
+NCIS: New Orleans
+Marvel's Agents Of S.H.I.E.L.D.
+Hawaii Five-0
+Regin
+Doctor Who (2005)
+CSI: Cyber
+Blindspot
+Castle (2009)
+Archer
+Minority Report
+Second Chance (2016)
+Arrow
+Better Call Saul
+Billions
+The Lion Guard
+
+http://www.nyaa.se/?page=rss&term=%%QUERY%%+-+%%EPISODE%%+horriblesub+720p
+Rakudai Kishi No Cavalry
+Ao No Kanata No Four Rhythm
+Bubuki Buranki
+Hai To Gensou No Grimgar
+GATE
+Assassination Classroom
+
+http://www.nyaa.se/?page=rss&term=%%QUERY%%+-+%%FULLCOUNT%%+horriblesub+720p
+Fairy Tail
