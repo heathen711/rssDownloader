@@ -1,5 +1,6 @@
 import urllib2
 import urllib
+import urlparse
 import re
 import subprocess
 import shlex
@@ -17,27 +18,30 @@ class rssDownloader:
     def getCalendarInfo(self, filterDate):
         self.history("Retrieving calendar info...")
         data = getOnlineContent("https://episodecalendar.com/en/rss_feed/heathen711@me.com")
-        data = data.replace('\n', '')
-        items = re.findall("<item>([\s\w\W]*?)</item>", data)
-        if items:
-            entries = []
-            for item in items:
-                entry = {}
-                parts = re.findall("<(?P<name>.*?)>([\s\w\W]*?)</(?P=name)", item)
-                for part in parts:
-                    entry[part[0]] = part[1]
-                entry['binaryDate'] = datetime.datetime.strptime(entry['pubDate'], "%a, %d %b %Y %H:%M:%S %Z")
-                if entry['binaryDate'] >= filterDate:
-                    if 'episodes' in entry.keys():
-                        tempEpisodes = []
-                        episodes = re.findall("<episode>([\s\w\W]*?)</episode>", entry['episodes'])
-                        for episode in episodes:
-                            tempEpisodes.append({})
-                            parts = re.findall("<(?P<name>.*?)>([\s\w\W]*?)</(?P=name)", episode)
-                            for part in parts:
-                                tempEpisodes[-1][part[0]] = part[1]
-                        for episode in tempEpisodes:
-                            entries.append(episode)
+        if data:
+            data = data.replace('\n', '')
+            items = re.findall("<item>([\s\w\W]*?)</item>", data)
+            if items:
+                entries = []
+                for item in items:
+                    entry = {}
+                    parts = re.findall("<(?P<name>.*?)>([\s\w\W]*?)</(?P=name)", item)
+                    for part in parts:
+                        entry[part[0]] = part[1]
+                    entry['binaryDate'] = datetime.datetime.strptime(entry['pubDate'], "%a, %d %b %Y %H:%M:%S %Z")
+                    if entry['binaryDate'] >= filterDate:
+                        if 'episodes' in entry.keys():
+                            tempEpisodes = []
+                            episodes = re.findall("<episode>([\s\w\W]*?)</episode>", entry['episodes'])
+                            for episode in episodes:
+                                tempEpisodes.append({})
+                                parts = re.findall("<(?P<name>.*?)>([\s\w\W]*?)</(?P=name)", episode)
+                                for part in parts:
+                                    tempEpisodes[-1][part[0]] = part[1]
+                            for episode in tempEpisodes:
+                                entries.append(episode)
+        else:
+            entries = False
         return entries 
     
     def calculateFullEpisodeCount(self, show):
@@ -84,6 +88,25 @@ class rssDownloader:
         log.close()
         if not self.service:
             print message
+            
+    def getTorrentLink(self, pageURL):
+        rawData = getOnlineContent(pageURL)
+        host = urlparse.urlparse(pageURL)
+        host = host.scheme + "://" + host.netloc
+        torrentLink = False
+        if rawData:
+            if rawData[0] == '<':
+                rawData.replace("\n", "")
+                if "magnet:?" in rawData:
+                    torrentLink = re.search("\"(magnet.*?)\"", rawData).group(1)
+                if ".torrent" in rawData and not torrentLink:
+                    test = re.search("<a href=\"(\/torrent_download\/.*?\.torrent)\" title=", rawData)
+                    if test:
+                        torrentLink = host + test.group(1)
+            else:
+                self.history("Page link as a redirect for the torrent file, downloading torrent file.")
+                self.downloadTorrent(pageURL)
+        return torrentLink
     
     def downloadTorrent(self, torrentURL):
         tempFile = "/share/Transmission/autoDownload/" + str(randint(0,5000)) + ".torrent"
@@ -95,13 +118,12 @@ class rssDownloader:
                 break
             fileHandler.write(buffer)
         fileHandler.close()
-        return tempFile
     
     def addTorrent(self, feed):
         self.history("Processing: " + feed['origTitle'])
-        if not feed['torrentLink'].endswith(".torrent"):
+        if not feed['torrentLink'].endswith(".torrent") and not feed['torrentLink'].startswith("magnet:"):
             self.history("Downloading torrent file...")
-            torrentURL = self.downloadTorrent(feed['torrentLink'])
+            self.downloadTorrent(feed['torrentLink'])
             
         count = 0
         while True:
@@ -321,7 +343,10 @@ class rssDownloader:
     def checkForDownloads(self):
         self.history("Checking for downloads...")
         for entry in self.linkTable.keys():
+            done = False
             for feed in self.linkTable[entry]['feeds']:
+                if done:
+                    break
                 #print feed['title'] + ' ' + str(feed['season']) + ' ' + str(feed['episode']) + ' ' + str(feed['fullEpisodeNumber'])
                 #print self.linkTable[entry]['title'] + ' ' + str(self.linkTable[entry]['season']) + ' ' + str(self.linkTable[entry]['episode']) + ' ' + str(self.linkTable[entry]['fullEpisodeNumber'])
                 if (self.linkTable[entry]['season'] == feed['season'] and self.linkTable[entry]['episode'] == feed['episode']) or self.linkTable[entry]['fullEpisodeNumber'] == feed['fullEpisodeNumber']:
@@ -331,7 +356,16 @@ class rssDownloader:
                         added = self.addTorrent(feed)
                         if added:
                             self.linkTable.pop(entry)
-                            break
+                            done = True
+                    elif 'link' in feed.keys():
+                        self.history("RSS feed does not contain torrent link, will attempt to load page and retrive torrent link.")
+                        link = self.getTorrentLink(feed['link'])
+                        if link:
+                            feed['torrentLink'] = link
+                            added = self.addTorrent(feed)
+                            if added:
+                                self.linkTable.pop(entry)
+                                done = True
                     else:
                         self.history("Error: " + feed['origTitle'] + " should be downloaded but does not contain a download link!")
                         self.history("Address: " + feed['link'])
@@ -412,10 +446,14 @@ class rssDownloader:
         self.history("Updating database.")
         rssLinks = self.readDatabase(self.databaseInfo['file'])
         shows = self.getCalendarInfo(start)
-        self.updateLinkTableShows(shows, rssLinks)
-        self.databaseInfo['timeStamp'] = os.stat(self.databaseInfo['file']).st_mtime
-        self.history("Done.")
-        self.getAllFeeds()
+        if shows:
+            self.updateLinkTableShows(shows, rssLinks)
+            self.databaseInfo['timeStamp'] = os.stat(self.databaseInfo['file']).st_mtime
+            self.history("Done.")
+            self.getAllFeeds()
+        else:
+            self.history("Error retriving episode calendar!")
+            return False
         
     def stop():
         self.stop = True
